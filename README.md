@@ -1,123 +1,97 @@
-# YCLI Python
+# YCLI
 
-YCLI Python 是一个运行在终端里的 AI Agent CLI，面向真实项目开发场景：读写文件、搜索代码、执行命令、联网检索、调用 MCP 工具、保存记忆、生成快照、恢复现场，并通过 Runtime API 对外提供线程、turn、事件和后台任务能力。
+基于多 Agent 编排的终端 AI 编程助手。
 
-![](https://cdn.paicoding.com/stutymore/best-city-ai-agent-jd-20260708142704.png)
+## 核心特性
 
-这个仓库是 YCLI 的 Python 版本。它不是一个空壳 Demo，而是按真实 CLI 产品来做：核心路径有测试覆盖，也经过本地 smoke 和真实终端运行验证。
+**三种 Agent 执行模式**
+- **单 Agent ReAct**：经典的推理-行动循环，流式事件驱动
+- **Plan-Execute DAG**：Planner 生成有向无环图，按依赖批次并行执行
+- **Multi-Agent 编排**：Planner-Worker-Reviewer 三角协作，支持自纠错重试
 
-## 配套教程路线
+**工程化能力**
+- Git Side-History 快照系统，不污染用户提交历史
+- MCP 协议集成，统一内置工具与远程工具
+- 智能并发调度，按工具属性自动分流并发/串行
+- 分层配置系统（5 级覆盖）+ 三级 Skill 加载
+- 混合记忆架构（短期会话 + 长期 SQLite + 静态文件）
+- 策略层安全沙箱（路径守卫 + 命令黑名单 + 审计日志）
 
-如果你是为了学习 Agent 工程、准备简历或准备面试，可以先看这条教程路线：
+## 架构亮点
 
-[YCLI 学习路线：手搓一个 Java 版 Claude Code](https://paicoding.com/paicli-learning-path)
+**流式事件驱动**
 
-这篇路线不是单纯教你“从第一行源码看到最后一行”，而是按真实学习和求职路径来组织：
+所有 Agent 模式统一 yield 事件流（text_delta / tool_call / tool_result / usage / done / error），解耦执行逻辑与渲染层，支持富文本和纯文本两种渲染模式。
 
-- 先把 YCLI 在本地跑起来，直观看到 ReAct、工具调用、Plan 模式和联网搜索是怎么工作的
-- 再把项目能力拆成可以写进简历的模块，比如 ReAct、Plan-and-Execute、Memory、RAG、MCP、HITL、多模态和 Runtime API
-- 然后围绕简历里写到的模块去深挖源码，并同步准备对应的 Agent 面试题
-- 最后通过 debug、改 bug、加工具、整理踩坑笔记，把项目真正变成自己的工程经验
+**智能并发调度**
 
-教程目录覆盖实战篇、简历篇和面试篇，适合作为学习 YCLI Java 版和理解本 Python 版设计取舍的路线图。
+ToolExecutor 根据工具的读写属性和安全级别自动决定并发或串行执行。只读且并发安全的工具自动并发，写入或需审批的工具串行，在保证安全的前提下最大化执行效率。
 
-![](https://cdn.paicoding.com/stutymore/paicli-python-launch-20260708161001.png)
+**Git Side-History 快照**
 
-## 功能特性
+通过独立的 orphan branch 记录 Agent 的每次修改，支持 pre-turn / post-turn / pre-restore 三种相位，不污染用户的 git log，不干扰 rebase / merge 操作。
 
-- 交互式终端 Agent，基于 Rich 和 prompt-toolkit 渲染
-- 单次 prompt 模式，适合脚本、管道和自动化调用
-- OpenAI-compatible 流式 LLM 客户端，默认面向 DeepSeek 配置
-- 支持 `DEEPSEEK_API_KEY` 等 provider-specific API Key
-- ReAct 工具调用循环，支持 thinking、tool call、tool result、final output 和 usage 事件
-- Plan-and-Execute 模式，使用独立 Planner 生成 DAG，并按依赖批次执行可并行任务
-- Multi-Agent 协作模式，包含 Planner、Worker、Reviewer、依赖调度、并行 worker 和 review 重试
-- 内置文件、Shell、grep、glob、记忆、网页搜索、网页抓取、代码搜索等工具
-- HITL 人工确认、命令/路径安全策略和 JSONL 审计日志
-- MCP client，支持 stdio 和 Streamable HTTP MCP server
-- Skill 系统，支持内置、用户级和项目级 skill，支持启用/禁用和 `load_skill` 懒加载注入
-- Chrome DevTools MCP 配置助手
-- YCLI 自身也可以作为 MCP server 暴露内置工具
-- Runtime API，支持线程、turn、事件日志和持久化后台任务
-- SQLite 长期记忆和本地代码索引
-- Agent run 前后自动创建快照，支持恢复现场
-- 支持本地图片和远程图片输入，并根据模型能力自动降级
+**MCP 协议统一抽象**
 
-## 环境要求
+将 MCP 远程工具与内置工具统一为 Tool 抽象，命名格式 `mcp__<server>__<tool>`，对 LLM 透明。支持 stdio 和 HTTP 两种传输协议。
 
-- Python 3.11 或更新版本
-- [uv](https://docs.astral.sh/uv/)
-- 可选：`rg`，用于更快的本地搜索
-- 可选：Chrome DevTools MCP 需要 Node.js 20.19.0 LTS 或更新版本、npm/npx 和 Chrome
+**混合记忆系统**
+
+- **短期记忆**：内存中的会话历史，支持自动截断
+- **长期记忆**：SQLite 持久化，按项目隔离，支持关键词搜索
+- **静态记忆**：YAI.md 文件，可 commit 到 git，团队共享
 
 ## 快速开始
 
 ```bash
+# 克隆项目
 git clone https://github.com/itwanger/YCLI-Python.git
 cd YCLI-Python
+
+# 安装依赖
 uv sync --extra dev
-uv run ycli --help
-```
 
-启动交互模式：
-
-```bash
+# 启动交互模式
 uv run ycli
-```
 
-单次查询：
-
-```bash
+# 单次查询
 uv run ycli -p "帮我总结这个项目"
-```
 
-检查当前环境：
-
-```bash
+# 环境检查
 uv run ycli doctor --cwd .
 ```
 
 ## 配置
 
-YCLI 的配置优先级如下：
+YCLI 采用五级配置覆盖机制：
 
 1. 内置默认配置
-2. `~/.ycli/config.json`
-3. 项目级 `.ycli/config.json`
-4. 项目级 `.env`
-5. CLI 参数
-6. 当前进程环境变量
+2. 用户配置 `~/.ycli/config.json`
+3. 项目配置 `.ycli/config.json`
+4. 环境变量文件 `.env`
+5. CLI 参数和环境变量
 
-可以像 Java 项目一样，把 DeepSeek Key 写到项目 `.env` 里：
+### API Key 配置
 
-```dotenv
+在项目根目录创建 `.env` 文件：
+
+```bash
+# 方式一：Provider-specific Key
 YCLI_PROVIDER=deepseek
 YCLI_MODEL=deepseek-v4-flash
 DEEPSEEK_API_KEY=your_key_here
-```
 
-也可以使用 YCLI 通用 Key：
-
-```dotenv
-YCLI_PROVIDER=deepseek
-YCLI_MODEL=deepseek-v4-flash
+# 方式二：通用 Key
 YCLI_API_KEY=your_key_here
 ```
 
-当前支持的 provider-specific API Key 包括：
-
+支持的 Provider-specific API Key：
 - `DEEPSEEK_API_KEY`
 - `GLM_API_KEY`
 - `STEP_API_KEY`
 - `KIMI_API_KEY`
 
-通过命令行临时覆盖 provider 和 model：
-
-```bash
-uv run ycli --provider deepseek --model deepseek-v4-flash
-```
-
-连接本地 OpenAI-compatible 服务：
+### 连接本地模型
 
 ```bash
 YCLI_PROVIDER=openai-compatible \
@@ -126,262 +100,199 @@ YCLI_MODEL=qwen2.5-coder \
 uv run ycli -p "解释这个仓库"
 ```
 
-## 交互命令
+## 使用方式
 
-进入 `uv run ycli` 后，可以使用这些 slash commands：
+### 交互模式
+
+```bash
+uv run ycli
+```
+
+进入 REPL 后，可用命令：
 
 ```text
-/help
-/exit
-/clear
-/context
-/memory
-/memory search <query>
-/memory clear
-/save <fact>
-/config
-/tools
-/hitl on|off|always|auto|never
-/policy
-/audit [N]
-/index [path]
-/search <query>
-/plan <task>
-/team <task>
-/model
-/skill
-/skill list
-/skill show <name>
-/skill on <name>
-/skill off <name>
-/skill reload
-/mcp
-/task
-/task add <task>
-/task cancel <task_id>
-/task log <task_id>
-/snapshot
-/snapshot clean
-/restore <snapshot-id-or-index>
+/help                    # 显示帮助
+/exit                    # 退出
+/clear                   # 清空历史
+/context                 # 查看上下文信息
+
+# 记忆管理
+/memory                  # 列出记忆
+/memory search <query>   # 搜索记忆
+/memory clear            # 清空记忆
+/save <fact>             # 保存记忆
+
+# Agent 模式
+/plan <task>             # Plan-Execute 模式
+/team <task>             # Multi-Agent 编排模式
+
+# 工具与策略
+/tools                   # 列出工具
+/hitl on|off|always|auto|never  # HITL 模式
+/policy                  # 查看策略
+
+# 快照与恢复
+/snapshot                # 列出快照
+/restore <id>            # 恢复快照
+/snapshot clean          # 清理快照
+
+# 其他
+/config                  # 查看配置
+/model                   # 查看/切换模型
+/skill                   # Skill 管理
+/mcp                     # MCP 管理
+/task                    # 后台任务管理
 ```
 
-## 内置工具
-
-YCLI 内置了一组 Agent 可以调用的本地工具和联网工具：
-
-- `read_file`
-- `write_file`
-- `list_dir`
-- `glob` / `glob_files`
-- `grep` / `grep_code`
-- `bash` / `execute_command`
-- `web_search`
-- `web_fetch`
-- `save_memory`
-- `load_skill`
-- `search_code`
-- `revert_turn`
-
-写文件、执行命令、远程 MCP 写操作、恢复快照等危险动作，会经过 policy、HITL 和 audit 处理。
-
-## 联网工具
-
-`web_search` 使用 DuckDuckGo HTML 搜索，返回标题、URL 和摘要。
-
-`web_fetch` 可以抓取公开 HTTP/HTTPS 页面，并做基础正文提取。它会拒绝 `file://`、loopback、私有网络和内网地址，降低 SSRF 风险。
-
-如果需要登录态、浏览器状态或 JS 渲染页面，建议使用 Chrome DevTools MCP。
-
-## MCP
-
-YCLI 可以连接 MCP server，并把远端工具动态注册为：
-
-```text
-mcp__<server-name>__<tool-name>
-```
-
-初始化项目级 Chrome DevTools MCP 配置：
+### 单次查询
 
 ```bash
-uv run ycli mcp init-chrome --scope project
+uv run ycli -p "帮我分析这个项目的架构"
 ```
 
-它会写入 `.ycli/mcp.json`，内容类似：
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@latest",
-        "--no-usage-statistics"
-      ]
-    }
-  }
-}
-```
-
-连接已有 remote-debugging Chrome：
-
-```bash
-uv run ycli mcp init-chrome \
-  --scope project \
-  --browser-url http://127.0.0.1:9222
-```
-
-查看已配置的 MCP server：
-
-```bash
-uv run ycli mcp list
-```
-
-把 YCLI 自身作为 MCP server 暴露：
-
-```bash
-uv run ycli mcp serve --transport stdio
-uv run ycli mcp serve --transport http --port 3000
-```
-
-HTTP smoke：
-
-```bash
-curl -sS -X POST http://127.0.0.1:3000 \
-  -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-```
-
-Chrome DevTools MCP 会把浏览器页面和 DevTools 状态暴露给 Agent。不要随意把包含个人账号、敏感数据或生产后台的 Chrome 会话授权给 Agent。
-
-## Runtime API
-
-YCLI 内置轻量 Runtime API，适合外部系统接入线程、turn、事件和后台任务。
-
-启动服务：
-
-```bash
-YCLI_RUNTIME_API_KEY=dev-key \
-uv run ycli serve --http --port 8080
-```
-
-创建线程：
-
-```bash
-curl -sS -X POST http://127.0.0.1:8080/v1/threads \
-  -H 'x-api-key: dev-key'
-```
-
-发送 turn：
-
-```bash
-curl -sS -X POST http://127.0.0.1:8080/v1/threads/<thread_id>/turns \
-  -H 'content-type: application/json' \
-  -H 'x-api-key: dev-key' \
-  -d '{"message":"总结这个项目"}'
-```
-
-读取事件：
-
-```bash
-curl -sS http://127.0.0.1:8080/v1/threads/<thread_id>/events \
-  -H 'x-api-key: dev-key'
-```
-
-创建并查看后台任务：
-
-```bash
-curl -sS -X POST http://127.0.0.1:8080/v1/tasks \
-  -H 'content-type: application/json' \
-  -H 'x-api-key: dev-key' \
-  -d '{"message":"后台总结这个仓库"}'
-
-curl -sS http://127.0.0.1:8080/v1/tasks \
-  -H 'x-api-key: dev-key'
-```
-
-## 图片输入
-
-YCLI 支持在 prompt 里引用图片：
-
-```text
-分析这张截图 @image:./screenshots/page.png
-```
-
-也支持绝对路径和远程图片：
-
-```text
-解释这张图 @image:/Users/me/Desktop/diagram.png
-看看这个图片 @image:https://example.com/image.png
-```
-
-本地图片会自动压缩、缩放，并在需要时把透明底铺成白底，再转为 data URL。如果当前 provider/model 不支持多模态输入，YCLI 会自动降级为文本元信息，不会把不支持的图片 payload 发给模型。
-
-## 快照
-
-每次 Agent run 都会尽力创建项目快照：
-
-- `pre-turn`
-- `post-turn`
-
-快照保存在 `~/.ycli/snapshots/`，不会写入项目 `.git`。
-
-REPL 中可以使用：
-
-```text
-/snapshot
-/restore 1
-/snapshot clean
-```
-
-## SDK
+### SDK 调用
 
 ```python
 from ycli.sdk import create_default_engine
 
 engine = create_default_engine(cwd=".")
+
+# 单 Agent 模式
 result = engine.ask_complete("解释这个项目")
 print(result.text)
 
+# Plan-Execute 模式
 plan_result = engine.plan_complete("先读取 README，再总结项目结构")
+
+# Multi-Agent 模式
 team_result = engine.team_complete("让多个 Agent 并行检查核心模块")
 ```
 
-## 开发
+## 内置工具
 
-安装开发依赖：
+YCLI 内置 14+ 个本地工具和联网工具：
+
+**文件操作**
+- `read_file` - 读取文件
+- `write_file` - 写入文件
+- `list_dir` - 列出目录
+
+**搜索**
+- `glob` / `glob_files` - 通配符搜索文件
+- `grep` / `grep_code` - 正则搜索内容
+- `search_code` - 语义搜索代码
+
+**执行**
+- `bash` / `execute_command` - 执行 Shell 命令
+
+**网络**
+- `web_search` - DuckDuckGo 搜索
+- `web_fetch` - 抓取网页内容
+
+**系统**
+- `save_memory` - 保存长期记忆
+- `load_skill` - 加载 Skill
+- `revert_turn` - 恢复快照
+
+所有写入操作都经过策略层安全检查，支持 HITL 人工审批。
+
+## MCP 集成
+
+### 连接 MCP Server
+
+YCLI 可以连接 MCP Server，自动注册远程工具：
 
 ```bash
-uv sync --extra dev
+# 初始化 Chrome DevTools MCP
+uv run ycli mcp init-chrome --scope project
+
+# 查看已配置的 MCP Server
+uv run ycli mcp list
 ```
 
-运行检查：
+MCP 工具会自动命名为 `mcp__<server>__<tool>` 格式。
+
+### 作为 MCP Server
+
+YCLI 自身也可以作为 MCP Server 暴露内置工具：
 
 ```bash
+# stdio 模式
+uv run ycli mcp serve --transport stdio
+
+# HTTP 模式
+uv run ycli mcp serve --transport http --port 3000
+```
+
+## Runtime API
+
+YCLI 内置轻量级 HTTP API，适合外部系统接入：
+
+```bash
+# 启动服务
+YCLI_RUNTIME_API_KEY=dev-key uv run ycli serve --http --port 8080
+
+# 创建线程
+curl -X POST http://127.0.0.1:8080/v1/threads \
+  -H 'x-api-key: dev-key'
+
+# 发送消息
+curl -X POST http://127.0.0.1:8080/v1/threads/<thread_id>/turns \
+  -H 'x-api-key: dev-key' \
+  -H 'content-type: application/json' \
+  -d '{"message":"总结这个项目"}'
+
+# 创建后台任务
+curl -X POST http://127.0.0.1:8080/v1/tasks \
+  -H 'x-api-key: dev-key' \
+  -H 'content-type: application/json' \
+  -d '{"message":"后台分析代码"}'
+```
+
+## 图片输入
+
+支持在 prompt 中引用图片：
+
+```text
+分析这张截图 @image:./screenshots/page.png
+```
+
+支持本地图片、绝对路径和远程 URL。本地图片会自动压缩和缩放，如果模型不支持多模态输入会自动降级为文本元信息。
+
+## 环境要求
+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/)
+- 可选：`rg`（更快的本地搜索）
+- 可选：Node.js 20.19.0+（Chrome DevTools MCP）
+
+## 开发
+
+```bash
+# 安装开发依赖
+uv sync --extra dev
+
+# 代码检查
 uv run python -m ruff check .
 uv run python -m ruff format --check .
+
+# 运行测试
 uv run python -m pytest
+
+# 构建
 uv build
 ```
 
-常用 smoke：
+## 技术栈
 
-```bash
-uv run ycli --version
-uv run ycli --help
-uv run ycli doctor --cwd .
-uv run ycli --plain -p hello
-```
-
-## 和 Java / TypeScript 版本的关系
-
-Python 版覆盖了 Java / TypeScript 版本里公开、开放协议相关的主要 Agent CLI 能力，包括 CLI、REPL、ReAct、Plan-and-Execute、Multi-Agent、Skill、SDK、工具调用、MCP、Runtime API、记忆、快照、联网工具和图片输入。
-
-Java 版本里还有一个私有的微信 iLink 通道。Python 仓库没有内置这个私有通道，因为它依赖账号、扫码登录和协议凭证，不应该用假实现冒充。
-
-更详细的实现对齐情况见 [docs/parity.md](docs/parity.md)。
+- **Python 3.11+**
+- **asyncio** - 异步并发
+- **SQLite** - 持久化存储
+- **prompt-toolkit** - 交互式终端
+- **Rich** - 富文本渲染
+- **MCP Protocol** - 工具协议
+- **OpenAI API** - LLM 调用
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT
